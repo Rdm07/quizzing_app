@@ -1,0 +1,6 @@
+# Server (server.py) uses only the Python standard library, plus:
+qrcode==8.2        # join-QR on the projector lobby (optional; falls back to the URL)
+# Deck converter (build_quiz.py):
+pillow==13.0.0     # image conversion/thumbnails
+# build_quiz.py also needs Microsoft PowerPoint installed (Windows) to render slides.
+# Tested with Python 3.15.2 (conda env: env_quiz)

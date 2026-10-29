@@ -1,0 +1,118 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quiz – Screen</title>
+<style>
+:root{--bg:#000;--fg:#f3f4ff;--mut:#9aa0c8;--acc:#ffb703;--ok:#2ec27e;--card:#1b1f3d}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:#000;color:var(--fg);font-family:system-ui,"Segoe UI",Roboto,sans-serif;overflow:hidden;cursor:none}
+#app{height:100vh;display:flex;flex-direction:column}
+#slide{flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
+#slide img{max-width:100%;max-height:100%;object-fit:contain}
+#strip{flex:none;min-height:9vh;display:flex;align-items:center;gap:2vw;padding:1.2vh 2vw;background:#0f1226;border-top:.4vh solid #252a52;font-size:3.2vh}
+#strip .l{color:var(--mut);font-size:2.4vh;white-space:nowrap}
+#strip .c{flex:1;text-align:center;font-weight:800}
+#strip .r{color:var(--mut);font-size:2.4vh}
+.hl{color:var(--acc)}
+.chip{display:inline-block;margin:0 .5vh;padding:.3vh 1.2vh;border-radius:99px;background:#252a52;font-size:2.2vh;font-weight:600}
+.chip.ok{background:var(--ok);color:#04210f}
+.page{flex:1;padding:4vh 8vw;display:flex;flex-direction:column;min-height:0;background:#0f1226}
+.page h1{font-size:6vh;margin:0 0 3vh;text-align:center}
+.lobby{display:flex;gap:6vw;align-items:center;justify-content:center;flex:1}
+.lobby img{height:48vh;background:#fff;padding:2vh;border-radius:2vh}
+.lobby .t{font-size:3.6vh}.lobby .u{font-size:4.4vh;font-weight:800;color:var(--acc);word-break:break-all}
+.board{display:flex;flex-direction:column;gap:1.2vh;flex:1;min-height:0;justify-content:center}
+.rowb{display:flex;align-items:center;gap:2vw;font-size:4.2vh;background:#1b1f3d;border-radius:1.6vh;padding:1.2vh 2vw;position:relative;overflow:hidden}
+.rowb .bar{position:absolute;left:0;top:0;bottom:0;background:#2b3270;transition:width .6s}
+.rowb>*{position:relative}.rowb .rk{width:6vh;color:var(--acc);font-weight:800}.rowb .n{flex:1;font-weight:700}.rowb .s{font-weight:800}
+.rowb.first{background:#3a2f06}.rowb.first .bar{background:#6b5410}
+#vid{position:fixed;display:none;background:#000;z-index:5}
+#vid video{width:100%;height:100%;object-fit:contain;background:#000;display:block}
+#vid.full{left:0!important;top:0!important;width:100vw!important;height:100vh!important}
+#conn{position:fixed;top:0;left:0;right:0;background:#ff5d73;color:#2a0008;text-align:center;font-size:2.4vh;padding:.6vh}
+</style></head><body>
+<div id="conn" hidden>Reconnecting…</div>
+<div id="app"></div>
+<div id="vid"><video id="player" playsinline preload="auto"></video></div>
+<script src="/static/common.js"></script>
+<script>
+const app = $('#app');
+let S = null;
+const nm = id => { const t = S.teams.find(t => t.id === id); return t ? esc(t.name) : '?'; };
+
+function board(final) {
+  const ts = [...S.teams].sort((a, b) => b.score - a.score);
+  const max = Math.max(1, ...ts.map(t => t.score));
+  let rank = 0, prev = null;
+  const rows = ts.map((t, i) => { if (t.score !== prev) rank = i + 1; prev = t.score;
+    return `<div class="rowb ${rank === 1 && t.score > 0 ? 'first' : ''}"><div class="bar" style="width:${Math.max(0, t.score) / max * 100}%"></div>
+      <span class="rk">${rank}</span><span class="n">${esc(t.name)}</span><span class="s">${fmt(t.score)}</span></div>`; }).join('');
+  return `<div class="page"><h1>${final ? '🏆 Final scores' : 'Scorecard'}</h1><div class="board">${rows}</div></div>`;
+}
+function strip() {
+  const ph = S.phase;
+  let left = `${esc(S.round)} · ${esc(S.label)}`, mid = '', right = `${S.qi + 1} / ${S.total}`;
+  const chips = S.teams.map(t => `<span class="chip ${t.pounced ? 'ok' : ''}">${esc(t.name)}</span>`).join('');
+  if (ph === 'intro') mid = esc(S.round);
+  else if (ph === 'pounce') mid = S.written ? `Written round – ${S.teams.filter(t => t.pounced).length}/${S.teams.length} answered`
+    : `POUNCE OPEN · <span class="hl">${S.teams.filter(t => t.pounced).length}/${S.teams.length}</span> ${chips}`;
+  else if (ph === 'bounce') mid = `For <span class="hl">${nm(S.for_team)}</span> · Bouncing to: <span class="hl" style="font-size:1.25em">${nm(S.bounce_current)}</span>`;
+  else if (ph === 'scoring') mid = S.show_answer ? 'ANSWER' : 'Scoring…';
+  if (S.slide_count > 1) right = `slide ${S.slide_n}/${S.slide_count} · ` + right;
+  return `<div id="strip"><div class="l">${left}</div><div class="c">${mid}</div><div class="r">${right}</div></div>`;
+}
+function draw() {
+  if (!S) return;
+  let h;
+  if (S.phase === 'lobby') {
+    h = `<div class="page"><h1>${esc(S.title)}</h1><div class="lobby">
+      <img src="/qr.svg" alt="" onerror="this.style.display='none'">
+      <div><div class="t">Join on your phone:</div><div class="u">${esc(S.join_url)}</div>
+      <div class="t" style="margin-top:3vh">Teams (${S.teams.length}):</div>
+      <div>${S.teams.map(t => `<span class="chip">${esc(t.name)}</span>`).join('')}</div></div></div></div>`;
+  } else if (S.phase === 'finished') h = board(true);
+  else if (S.screen_mode === 'scoreboard') h = board(false);
+  else h = `<div id="slide">${S.slide_url ? `<img src="${S.slide_url}" alt="">` : ''}</div>` + strip();
+  render(app, h);
+  placeVideo();
+}
+
+// ---- embedded video: lives outside #app so re-renders never restart it ----
+const vidBox = $('#vid'), player = $('#player');
+let curVideoKey = null;
+function slideRect() {   // where the 16:9 slide image actually sits inside #slide (it is letterboxed)
+  const host = $('#slide');
+  if (!host) return null;
+  const r = host.getBoundingClientRect(), ar = 16 / 9;
+  let w = r.width, h = w / ar;
+  if (h > r.height) { h = r.height; w = h * ar; }
+  return {left: r.left + (r.width - w) / 2, top: r.top + (r.height - h) / 2, w, h};
+}
+function placeVideo() {
+  const v = S && S.video, rc = slideRect();
+  if (!v || !rc || S.phase === 'lobby' || S.phase === 'finished' || S.screen_mode !== 'slide') {
+    vidBox.style.display = 'none'; player.pause(); curVideoKey = null; return;
+  }
+  if (curVideoKey !== v.key) {
+    curVideoKey = v.key; player.src = v.url; player.load();
+  }
+  Object.assign(vidBox.style, {left: rc.left + rc.w * v.x / 100 + 'px', top: rc.top + rc.h * v.y / 100 + 'px',
+                               width: rc.w * v.w / 100 + 'px', height: rc.h * v.h / 100 + 'px'});
+  vidBox.classList.toggle('full', !!v.full);
+  // stopped: hide the clip so the slide's own poster frame shows; otherwise show it
+  vidBox.style.display = v.state === 'stopped' ? 'none' : 'block';
+  if (v.state === 'playing') {
+    if (player.ended) player.currentTime = 0;
+    player.muted = false;   // sound is always on; tools/open_screen.ps1 launches the browser with autoplay allowed
+    player.play().catch(() => { player.muted = true; player.play().catch(() => {}); });   // browser refused sound: play silently until any click
+  } else {
+    player.pause();
+    if (v.state === 'stopped') player.currentTime = 0;
+  }
+}
+function unmute() { player.muted = false; }   // any click/key on the projector restores sound if the browser had blocked it
+document.addEventListener('click', unmute); document.addEventListener('keydown', unmute);
+player.addEventListener('ended', () => {
+  if (S && S.video) fetch('/api/video_ended', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key: S.video.key})});
+});
+window.addEventListener('resize', placeVideo);
+listen('screen', '', s => { S = s; draw(); });
+</script></body></html>

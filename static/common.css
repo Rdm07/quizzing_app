@@ -1,0 +1,26 @@
+:root{--bg:#0f1226;--card:#1b1f3d;--card2:#252a52;--fg:#f3f4ff;--mut:#9aa0c8;--acc:#ffb703;--ok:#2ec27e;--bad:#ff5d73;--blue:#5b8def}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
+body{min-height:100vh;padding:14px 16px 40px;max-width:640px;margin:0 auto;font-size:17px}
+h1{font-size:1.4rem;margin:.2rem 0 .6rem}h2{font-size:1.1rem;margin:.2rem 0 .5rem}
+.card{background:var(--card);border-radius:14px;padding:14px;margin:12px 0}
+.muted{color:var(--mut);font-size:.9rem}
+.row{display:flex;gap:10px;align-items:center}.row>*{flex:1}.wrap{flex-wrap:wrap}
+button,.btn{font:inherit;font-weight:600;border:0;border-radius:12px;padding:14px 16px;background:var(--card2);color:var(--fg);cursor:pointer;width:100%;touch-action:manipulation}
+button:active{filter:brightness(1.25)}
+button.primary{background:var(--acc);color:#1a1300}button.ok{background:var(--ok);color:#04210f}button.danger{background:var(--bad);color:#2a0008}
+button.small{padding:8px 10px;width:auto;font-size:.9rem}button:disabled{opacity:.4}
+input,textarea,select{font:inherit;width:100%;padding:12px;border-radius:10px;border:2px solid var(--card2);background:#0b0d1f;color:var(--fg)}
+input:focus,textarea:focus{outline:none;border-color:var(--acc)}
+textarea{min-height:90px;resize:vertical}
+.pill{display:inline-block;padding:3px 10px;border-radius:99px;background:var(--card2);font-size:.8rem;margin:2px}
+.pill.ok{background:var(--ok);color:#04210f}.pill.acc{background:var(--acc);color:#1a1300}
+.err{color:var(--bad);min-height:1.3em;margin:6px 0}
+.big{font-size:2rem;font-weight:800;text-align:center;margin:10px 0}
+img.thumb{width:100%;border-radius:10px;display:block;background:#000}
+.stack>*+*{margin-top:10px}
+details{margin:10px 0}summary{cursor:pointer;color:var(--mut);padding:6px 0}
+.team{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--card2)}
+.team:last-child{border:0}.team .nm{flex:1;font-weight:600;word-break:break-word}
+.pts{width:90px!important;text-align:center}
+.ans{background:#0b0d1f;border-radius:8px;padding:8px 10px;margin-top:6px;word-break:break-word;font-size:.95rem}

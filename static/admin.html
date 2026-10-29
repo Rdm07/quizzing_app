@@ -1,0 +1,152 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Quiz – Admin</title><link rel="stylesheet" href="/static/common.css"></head><body>
+<div id="conn" class="err" hidden>Reconnecting…</div>
+<div id="app"></div>
+<script src="/static/common.js"></script>
+<script>
+let token = store.get('quiz_admin_token'), S = null, err = '', es = null, loginErr = '';
+const app = $('#app');
+const nm = id => { const t = S.teams.find(t => t.id === id); return t ? esc(t.name) : '?'; };
+
+function nav() {
+  const n = S.slide_count, cur = S.slide_n;
+  if (!n || n < 2) return '';
+  const label = `<div class="muted" style="text-align:center">Projector is on slide ${cur} of ${n}</div>`;
+  if (n === 2)   // one button flips back and forth, any number of times
+    return `<button onclick="act('goto_slide',{index:${cur === 1 ? 1 : 0}})">⇄ Switch to slide ${cur === 1 ? 2 : 1}</button>${label}`;
+  return `<div class="row wrap">${Array.from({length: n}, (_, i) =>
+    `<button class="${i + 1 === cur ? 'primary' : ''}" style="flex:1 1 56px" onclick="act('goto_slide',{index:${i}})">${i + 1}</button>`).join('')}</div>${label}`;
+}
+function videoCtl() {   // only when the slide on the projector has an embedded video
+  const v = S.video;
+  if (!v) return '';
+  const st = v.state, playing = st === 'playing';
+  const label = {stopped: 'Ready (showing poster frame)', playing: 'Playing on projector', paused: 'Paused', ended: 'Finished'}[st];
+  return `<div class="card" style="background:var(--card2);margin:0"><div class="muted" style="margin-bottom:8px">🎬 Video · ${label}</div>
+    <div class="row"><button class="${playing ? '' : 'primary'}" onclick="act('${playing ? 'video_pause' : 'video_play'}')">${playing ? '⏸ Pause' : st === 'paused' ? '▶ Resume' : st === 'ended' ? '↺ Replay' : '▶ Play'}</button>
+    <button onclick="act('video_stop')" ${st === 'stopped' ? 'disabled' : ''}>⏹ Stop</button></div>
+    <button style="margin-top:8px" onclick="act('video_full')" ${st === 'stopped' ? 'disabled' : ''}>${v.full ? '⤡ Shrink back to slide' : '⤢ Expand to full screen'}</button></div>`;
+}
+function thumbs() {
+  return (S.cur_thumb ? `<img class="thumb" src="${S.cur_thumb}" alt="">` : '') + videoCtl();
+}
+function teamOrder() {
+  return `<details><summary>Seating / bounce order (${S.direction === 1 ? 'clockwise' : 'anti-clockwise'} = ${S.direction === 1 ? 'down' : 'up'} the list)</summary><div class="card">
+    ${S.teams.map((t, i) => `<div class="team"><span class="nm">${i + 1}. ${esc(t.name)}</span>
+      <button class="small" onclick="act('move_team',{team:'${t.id}',delta:-1})" ${i === 0 ? 'disabled' : ''}>▲</button>
+      <button class="small" onclick="act('move_team',{team:'${t.id}',delta:1})" ${i === S.teams.length - 1 ? 'disabled' : ''}>▼</button>
+      ${S.phase === 'lobby' ? `<button class="small danger" onclick="act('remove_team',{team:'${t.id}'})">✕</button>` : ''}</div>`).join('') || '<p class="muted">No teams yet.</p>'}
+    <p class="muted">Order teams as they sit around the room. Clockwise follows this list downwards.</p></div></details>`;
+}
+function answerPeek() {
+  if (S.phase === 'lobby' || S.phase === 'finished') return '';
+  return `<details><summary>Peek at answer</summary><div class="card stack">
+    <div><b>${esc(S.answer_text) || '<span class="muted">(no answer text)</span>'}</b></div>
+    ${S.a_thumbs.map(u => `<img class="thumb" src="${u}" alt="">`).join('')}</div></details>`;
+}
+function topControls() {
+  const cw = S.direction === 1, sc = S.screen_mode === 'scoreboard';
+  return `<div class="row">
+    <button onclick="act('toggle_screen')">Screen: <b>${sc ? 'Scorecard' : 'Question'}</b><br><span class="muted">tap for ${sc ? 'question' : 'scorecard'}</span></button>
+    <button onclick="act('toggle_direction')">Bounce: <b>${cw ? '⟳ Clockwise' : '⟲ Anti-clockwise'}</b><br><span class="muted">tap to flip</span></button></div>`;
+}
+function scoreboardMini() {
+  const ts = [...S.teams].sort((a, b) => b.score - a.score);
+  return `<details><summary>Scores</summary><div class="card">${ts.map(t => `<div class="team"><span class="nm">${esc(t.name)}</span><b>${fmt(t.score)}</b></div>`).join('')}</div></details>`;
+}
+
+function draw() {
+  if (!token) return render(app, `<div class="card stack"><h1>Quiz master</h1>
+    <input id="pin" inputmode="numeric" placeholder="Admin PIN" autocomplete="off">
+    <div class="err">${esc(loginErr)}</div><button class="primary" onclick="login()">Enter</button></div>`);
+  if (!S) return render(app, '<p class="muted">Connecting…</p>');
+  const ph = S.phase;
+  let h = `<div class="muted">${esc(S.title)} · ${ph === 'lobby' || ph === 'finished' ? ph : `Q ${S.qi + 1}/${S.total} · ${esc(S.round)} · ${esc(S.label)}`}
+    ${S.written ? '<span class="pill acc">written round</span>' : ''}</div>
+    <div class="err">${esc(err)}</div>`;
+  h += topControls();
+  const pcount = S.teams.filter(t => t.pounced).length;
+
+  if (ph === 'lobby') {
+    h += `<div class="card stack"><h2>Lobby</h2>
+      <p>Teams join at<br><b>${esc(S.join_url)}</b></p>
+      <div>${S.teams.map(t => `<span class="pill">${esc(t.name)}</span>`).join('') || '<span class="muted">Waiting for teams…</span>'}</div>
+      <button class="primary" onclick="act('start')" ${S.teams.length ? '' : 'disabled'}>Start quiz (${S.teams.length} teams)</button></div>`;
+  } else if (ph === 'intro') {
+    h += `<div class="card stack">${thumbs()}${nav()}<button class="primary" onclick="act('begin_question')">Show question →</button></div>`;
+  } else if (ph === 'pounce') {
+    h += `<div class="card stack"><h2>Pounce open · ${pcount}/${S.teams.length} pounced</h2>${thumbs()}${nav()}
+      ${S.teams.map(t => { const p = S.pounces[t.id]; return `<div class="team"><span class="nm">${esc(t.name)}</span>
+        ${p ? `<span class="pill ok">pounced</span>${p.talk ? '<span class="pill acc">talk to admin</span>' : ''}` : '<span class="muted">–</span>'}</div>`; }).join('')}
+      ${S.written ? '' : `<label class="muted">Question is for:</label>
+      <select id="forsel-${S.qi}" onchange="act('set_for',{team:this.value})">
+        ${S.teams.map(t => `<option value="${t.id}" ${t.id === S.for_team ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>`}
+      <button class="primary" onclick="act('close_pounce')">${S.written ? 'Close answers → score' : 'Close pounce → start bounce'}</button></div>`;
+  } else if (ph === 'bounce') {
+    const upcoming = S.bounce_queue.slice(S.bounce_pos + 1);
+    h += `<div class="card stack"><div class="muted">Question was for ${nm(S.for_team)} · bounce ${S.bounce_pos + 1}/${S.bounce_queue.length} · ${S.direction === 1 ? 'clockwise' : 'anti-clockwise'}</div>
+      <div class="big">${nm(S.bounce_current)}</div>
+      <div class="muted" style="text-align:center">${upcoming.length ? 'Then: ' + upcoming.map(nm).join(' → ') : 'Last team in the bounce'}</div>
+      ${thumbs()}${nav()}
+      <button class="primary" onclick="act('bounce_next')">${upcoming.length ? 'Next team →' : 'Done → score'}</button>
+      <div class="row"><button onclick="act('bounce_prev')" ${S.bounce_pos === 0 ? 'disabled' : ''}>← Back</button>
+      <button class="danger" onclick="act('stop_bounce')">Stop bounce</button></div>
+      <p class="muted">Flipping direction takes effect from the next question's bounce.</p></div>`;
+  } else if (ph === 'scoring') {
+    h += `<div class="card stack"><h2>Award points</h2>
+      <button onclick="act('toggle_answer')">${S.show_answer ? 'Showing answer on screen · tap to show question' : 'Show answer on screen'}</button>${nav()}${videoCtl()}
+      <div class="card" style="background:var(--card2)"><div class="muted">Answer</div><b>${esc(S.answer_text) || '(see slide)'}</b></div>
+      ${S.teams.map(t => { const p = S.pounces[t.id]; return `<div style="border-bottom:1px solid var(--card2);padding-bottom:8px">
+        <div class="team" style="border:0;padding-bottom:0"><span class="nm">${esc(t.name)}</span><span class="muted">${fmt(t.score)}</span>
+        <input class="pts" id="pts-${S.qi}-${t.id}" type="number" step="any" inputmode="decimal" placeholder="0"></div>
+        <div class="row" style="margin-top:6px;gap:6px">
+          <button class="small" onclick="bump('${t.id}',-5)">−5</button><button class="small" onclick="bump('${t.id}',5)">+5</button>
+          <button class="small" onclick="bump('${t.id}',10)">+10</button><button class="small" onclick="bump('${t.id}','neg')">±</button>
+          <button class="small" onclick="bump('${t.id}','clear')">clear</button></div>
+        ${p ? `<div class="ans">${p.text ? esc(p.text) : ''}${p.talk ? ' <span class="pill acc">talk to admin</span>' : ''}</div>` : ''}</div>`; }).join('')}
+      <div class="err">${esc(err)}</div>
+      <button class="ok" onclick="submitScores()">Submit points &amp; next question →</button></div>`;
+  } else {
+    h += `<div class="card stack"><h2>Final scores</h2>${[...S.teams].sort((a, b) => b.score - a.score).map(t => `<div class="team"><span class="nm">${esc(t.name)}</span><b>${fmt(t.score)}</b></div>`).join('')}
+      <a class="btn" style="display:block;text-align:center;text-decoration:none;padding:14px;border-radius:12px;background:var(--card2);color:var(--fg)" href="/results.csv?token=${token}">Download results CSV</a></div>`;
+  }
+  h += answerPeek() + (ph === 'lobby' ? '' : scoreboardMini()) + teamOrder();
+  if (['intro', 'pounce', 'bounce', 'scoring'].includes(ph)) h += `<button class="small danger" style="margin-top:14px" onclick="if(confirm('Skip this question without scoring?'))act('skip')">Skip question</button>`;
+  render(app, h);
+}
+async function act(action, extra) {
+  err = '';
+  try { await api('/api/admin/' + action, {token, ...(extra || {})}); }
+  catch (e) { if (e.status === 401) return logout(); err = e.message; draw(); }
+}
+function bump(tid, d) {   // quick points: buttons add to whatever is already typed
+  const i = document.getElementById(`pts-${S.qi}-${tid}`);
+  if (!i) return;
+  const cur = parseFloat(String(i.value).replace(',', '.')) || 0;
+  const v = d === 'clear' ? '' : d === 'neg' ? -cur : cur + d;
+  i.value = v === '' ? '' : (v === 0 ? '0' : String(Math.round(v * 100) / 100));
+}
+async function submitScores() {
+  const points = {};
+  S.teams.forEach(t => { const i = document.getElementById(`pts-${S.qi}-${t.id}`); points[t.id] = i ? i.value : ''; });
+  const total = S.teams.filter(t => !(points[t.id] || '').trim()).length;
+  if (total === S.teams.length && !confirm('No points entered for any team. Continue anyway?')) return;
+  await act('submit_scores', {points});
+}
+async function login() {
+  loginErr = '';
+  try { const r = await api('/api/admin/login', {pin: $('#pin').value.trim()}); token = r.token; store.set('quiz_admin_token', token); connect(); }
+  catch (e) { loginErr = e.message; }
+  draw();
+}
+function logout() { store.del('quiz_admin_token'); token = ''; S = null; if (es) es.close(); draw(); }
+function connect() {
+  if (es) es.close();
+  es = listen('admin', token, s => { S = s; draw(); }, logout);
+}
+const urlPin = new URLSearchParams(location.search).get('pin');   // /admin?pin=1234 logs in directly
+if (urlPin) { history.replaceState(null, '', location.pathname); $('#pin') || draw(); api('/api/admin/login', {pin: urlPin}).then(r => { token = r.token; store.set('quiz_admin_token', token); connect(); draw(); }).catch(e => { loginErr = e.message; draw(); }); }
+else if (token) connect();
+draw();
+</script></body></html>

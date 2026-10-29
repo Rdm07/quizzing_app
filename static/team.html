@@ -1,0 +1,73 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Quiz – Team</title><link rel="stylesheet" href="/static/common.css"></head><body>
+<div id="conn" class="err" hidden>Reconnecting…</div>
+<div id="app"></div>
+<script src="/static/common.js"></script>
+<script>
+let token = store.get('quiz_team_token'), S = null, err = '', es = null;
+const app = $('#app');
+
+function rankOf(me) { return 1 + S.teams.filter(t => t.score > me.score).length; }
+
+function draw() {
+  if (!S) return render(app, '<p class="muted">Connecting…</p>');
+  const me = S.me;
+  if (!me) return render(app, `<div class="card stack"><h1>${esc(S.title)}</h1>
+    <p class="muted">One phone per team. Enter your team name to join.</p>
+    <input id="name" maxlength="30" placeholder="Team name" autocomplete="off">
+    <div class="err">${esc(err)}</div>
+    <button class="primary" onclick="join()">Join quiz</button></div>`);
+  const head = `<div class="card row"><div><div class="muted">Team</div><h1 style="margin:0">${esc(me.name)}</h1></div>
+    <div style="text-align:right"><div class="muted">Score · Rank</div><h1 style="margin:0">${fmt(me.score)} · #${rankOf(me)}</h1></div></div>`;
+  let body = '';
+  const ph = S.phase, qtag = `<div class="muted">${esc(S.round)} · ${esc(S.label)}</div>`;
+  if (ph === 'lobby') body = `<div class="card"><div class="big">You're in!</div><p class="muted" style="text-align:center">Waiting for the quiz master to start…</p></div>`;
+  else if (ph === 'intro') body = `<div class="card"><div class="big">${esc(S.round)}</div><p class="muted" style="text-align:center">Get ready. Eyes on the main screen.</p></div>`;
+  else if (ph === 'pounce') {
+    if (me.pounce) body = `<div class="card">${qtag}<div class="big" style="color:var(--ok)">Pounce locked ✓</div>
+      ${me.pounce.talk ? '<p style="text-align:center"><span class="pill acc">Wants to talk to admin</span></p>' : ''}
+      ${me.pounce.text ? `<div class="ans">${esc(me.pounce.text)}</div>` : ''}
+      <p class="muted" style="text-align:center">Waiting for the pounce window to close.</p></div>`;
+    else body = `<div class="card stack">${qtag}<h2>${S.written ? 'Written round – type your answer' : 'Pounce!'}</h2>
+      <textarea id="ptext-${S.qi}" maxlength="500" placeholder="${S.written ? 'Your answer' : 'Your pounce answer (or leave blank to skip)'}"></textarea>
+      <div class="err">${esc(err)}</div>
+      <button class="primary" onclick="pounce(false)">Submit${S.written ? '' : ' pounce'}</button>
+      ${S.written ? '' : '<button onclick="pounce(true)">Pounce, but talk to admin</button>'}
+      <p class="muted">Once submitted, your pounce is locked. If you don't want to pounce, leave this blank and wait.</p></div>`;
+  } else if (ph === 'bounce') {
+    const cur = S.teams.find(t => t.id === S.bounce_current), forT = S.teams.find(t => t.id === S.for_team);
+    const mine = S.bounce_current === me.id;
+    body = `<div class="card" style="${mine ? 'background:var(--acc);color:#1a1300' : ''}">${qtag}
+      <div class="muted" style="${mine ? 'color:#4a3600' : ''}">Question was for ${esc(forT ? forT.name : '?')}</div>
+      <div class="big">${mine ? 'YOUR TURN!' : 'Bounce → ' + esc(cur ? cur.name : '')}</div>
+      ${me.pounce ? '<p class="muted" style="text-align:center">You pounced, so you sit out the bounce.</p>' : ''}</div>`;
+  } else if (ph === 'scoring') body = `<div class="card"><div class="big">Scoring…</div><p class="muted" style="text-align:center">The quiz master is awarding points.</p></div>`;
+  else body = `<div class="card"><div class="big">Quiz over!</div><p style="text-align:center">You finished #${rankOf(me)} with ${fmt(me.score)} points.</p></div>`;
+  render(app, head + body);
+}
+async function join() {
+  err = '';
+  try {
+    const r = await api('/api/join', {name: $('#name').value, token});
+    token = r.token; store.set('quiz_team_token', token); connect();
+  } catch (e) { err = e.message; draw(); }
+}
+async function pounce(talk) {
+  err = '';
+  const box = document.querySelector('textarea');
+  try { await api('/api/pounce', {token, text: box ? box.value : '', talk}); }
+  catch (e) { err = e.message; draw(); }
+}
+function connect() {
+  if (es) es.close();
+  es = listen('team', token, s => {
+    S = s;
+    if (S.me === null && token) { store.del('quiz_team_token'); token = ''; }
+    err = ''; draw();
+  });
+}
+const urlTok = new URLSearchParams(location.search).get('t');   // /?t=<token> restores a team on a new browser
+if (urlTok) { token = urlTok; store.set('quiz_team_token', token); history.replaceState(null, '', location.pathname); }
+connect(); draw();
+</script></body></html>
